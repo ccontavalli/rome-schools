@@ -1,0 +1,207 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Asili Nido e Scuole Infanzia Roma</title>
+
+    <link rel="stylesheet" href="bootstrap-3.3.7-dist/css/bootstrap.min.css">
+    <meta name="description" content="Mappa degli Asili Nido e delle scuole dell'infanzia di Roma">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+
+    <style>
+       #map {
+        height: 400px;
+        width: 100%;
+       }
+    </style>
+  </head>
+
+<body>
+  <div class="container">
+
+    <div class="page-header">
+      <h1>Asili nido e scuole dell'infanzia Roma e Provincia</h1>
+
+      <div class="container">
+      	<div class="row">
+              <div class="col-md-4">
+               <p>Dati ottenuti da <a href="http://usrlazio.it">USR LAZIO</a>.<br>
+                  Maggiori dettagli <a href="http://rabexc.org/posts/rome-maps">nel blog post</a>.</p>
+              </div>
+              <div id="custom-search-input">
+                    <div class="col-md-2">
+                      Mostra solo scuole entro
+                      <div class="input-group">
+                        <input id="distance-minute" type="number" class="form-control input-small" value="60" />
+                        <span class="input-group-addon">minuti</span>
+                      </div>
+                    </div>
+                    <div class="col-md-5">
+                        da ... via mezzi pubblici
+                        <div class="input-group">
+                          <input id="address-from" type="text" class="form-control input-small" placeholder="indirizzo" />
+                          <span class="input-group-btn">
+                              <button class="btn btn-info btn-small" type="button">
+                                  <i class="glyphicon glyphicon-search"></i>
+                              </button>
+                          </span>
+                        </div>
+
+                        <div class="progress">
+                          <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuenow="60" aria-valuemin="0" aria-valuemax="100" style="width: 0%;">0%</div>
+                        </div>
+                  </div>
+
+            </div>
+      	</div>
+      </div>
+
+    </div>
+
+    <div class="row">
+      <div class="col-md-4"><img src="markers/blue_MarkerN.png">&nbsp;Scuole NON PARITARIE</div>
+      <div class="col-md-4"><img src="markers/yellow_MarkerP.png">&nbsp;Scuole PARITARIE</div>
+      <div class="col-md-4"><img src="markers/red_MarkerS.png">&nbsp;Scuole STRANIERE</div>
+    </div>
+
+    <div class="row">
+      <div id="map" class="col-md-12"></div>
+    </div>
+  </div>
+
+  <script src="jquery-3.1.1.min.js"></script>
+  <script src="jquery-ui-1.12.1/jquery-ui.min.js"></script>
+
+  <script>
+      var icons = {
+        "non-paritarie": "markers/blue_MarkerN.png",
+        "paritarie": "markers/yellow_MarkerP.png",
+        "straniere": "markers/red_MarkerS.png",
+      }
+
+      function createHtml(val) {
+        return "<h3><a target='_blank' href='http://google.com/search?q=" + val.name + " " + val.address + "'>" + val.name + "</a></h3><ul>" +
+                 "<li>" + val.address + "<br>" + 
+                 "<small>dopo ricerca: " + (val.location ? val.location.formatted_address : "(unknown)") + "</small></li>" +
+                 "<li>Tel: " + val.phone + "</li>" + 
+                 "<li>Email: " + val.email + "</li>" + 
+                 (val.distance ? "<li>" + val.distance + "</li>" : "") +
+                 "</ul>";
+      }
+
+      function initMap() {
+        var rome = {lat: 41.9028, lng: 12.4964};
+        var map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 12,
+          center: rome
+        });
+
+        var input = $("#address-from");
+        var autocomplete = new google.maps.places.Autocomplete(input[0]);
+        autocomplete.bindTo("bounds", map);
+
+        $.getJSON("results.json", function(data) {
+          console.log("got data", data)
+
+          var nowopen = null;
+          var origins = [];
+          var objects = [];
+          var markers = [];
+          var iws = [];
+
+          $.each(data.schools, function (key, val) {
+            if (!val.location) return;
+
+            if (val.location.formatted_address)
+              origins.push(val.location.formatted_address);
+            else
+              origins.push(val.location.geometry.location);
+
+            objects.push(val);
+
+            var icon = icons[val.origin];
+
+            var position = val.location.geometry.location;
+            var iw = new google.maps.InfoWindow({content: createHtml(val)});
+            var marker = new google.maps.Marker({
+              position: position,
+              title: val.name,
+              icon: icon,
+              map: map
+            });
+            iws.push(iw);
+            marker.addListener('click', function() {
+              if (nowopen) nowopen.close();
+              iw.open(map, marker);
+              nowopen = iw;
+            });
+            markers.push(marker);
+            console.log("got school", val, marker);
+          });
+
+          autocomplete.addListener('place_changed', function() {
+            if (nowopen) { nowopen.close(); nowopen = null; } 
+            var place = autocomplete.getPlace();
+            if (!place.geometry) return;
+
+            var service = new google.maps.DistanceMatrixService();
+
+            var filterSome = function (start) {
+              if (start >= origins.length) return;
+
+              service.getDistanceMatrix({
+                origins: origins.slice(start, start + 25),
+                destinations: [place.geometry.location],
+                travelMode: 'TRANSIT',
+              }, function(response, status) {
+                console.log("RECEIVED MATRIX", origins.slice(start, start + 25), start, response, status);
+
+                if (status == "OVER_QUERY_LIMIT") {
+                  setTimeout(filterSome, 1000, start);
+                  return;
+                }
+
+                var limit = $("#distance-minute").val() * 60;
+
+                $.each(response.rows, function (key, value) {
+                   var route = value.elements[0];
+
+                   if (route.status != "OK" || route.duration.value > limit) {
+                     console.log("HIDING", route.status, key + start, markers[key + start], key, value, limit);
+                     markers[key + start].setMap(null);
+                   } else {
+                     console.log("SHOWING", route.status, key + start, markers[key + start], key, value, limit);
+                     markers[key + start].setMap(map);
+                     objects[key + start].distance = route.duration.text + " da " + place.formatted_address;
+                     iws[key + start].setContent(createHtml(objects[key + start]));
+                   }
+                   var percent = parseInt(((key + start + 1) * 100)/ origins.length);
+
+                   $("#progress-bar").css("width", "" + percent + "%");
+                   $("#progress-bar").html("" + percent + "%");
+                });
+
+                setTimeout(filterSome, 1000, start + 25);
+              });
+            }
+
+            filterSome(0);
+          });
+      });
+      }
+  </script>
+
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAzJ5MoT8DumuWgIpnTUUofQzxxb3hyqGk&libraries=places&callback=initMap"></script>
+</body>
+</html>
